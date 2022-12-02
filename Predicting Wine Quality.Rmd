@@ -1,5 +1,5 @@
 ---
-title: "Project 3 - Wallace"
+title: "Predicting Wine Quality"
 author: "Brandon Wallace"
 date: "`r Sys.Date()`"
 output: html_document
@@ -22,7 +22,7 @@ This report found that a random forest model performed best. The random forest m
 This dataset contains 6,497 observations. Each observation is a wine. There are 11 predictor variables. The response variable is a class - either "Good" or "Bad" wine. 
 
 ```{r}
-wineQuality <- read.csv("~/Carnegie Mellon - Statistical Learning/Projects/wineQuality.csv",  stringsAsFactors=TRUE)
+wineQuality <- read.csv(######## file path #########)
 
 summary(wineQuality)
 
