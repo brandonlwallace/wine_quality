@@ -1,0 +1,248 @@
+---
+title: "Project 2 - Wallace"
+author: "Brandon Wallace"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+This project utilizes course modules to model the price of diamonds as function of descriptive variables. 
+
+## Data Description
+
+```{r}
+setwd("~/Carnegie Mellon - Statistical Learning/Projects")
+diamonds_df <- read.csv("~/Carnegie Mellon - Statistical Learning/Projects/diamonds.csv", stringsAsFactors=TRUE)
+
+summary(diamonds_df)
+dim(diamonds_df)
+
+```
+The Diamonds data set has 11 variables and 53,940 observations. The response variable is price. 
+
+
+```{r}
+library(tidyverse)
+diamonds_df <- select(diamonds_df, -X)
+
+```
+The X variable is just a numbered column for the row. It is similar to an ID field. So, it holds no value. Therefore, I removed it from the dataframe.  
+
+
+## Exploratory Data Analysis
+
+```{r}
+
+distribution_check <- diamonds_df  %>% select(carat, depth, table, price, x, y, z) %>% gather()
+
+ggplot(data = distribution_check, mapping=aes(value)) +
+  geom_histogram(color='blue', bins = 50) +
+  facet_wrap(~key, scales = 'free_x') 
+
+```
+
+  
+I isolated the continuous variables for further study. There is skew, particularly for y and z (the width and depth of the diamond respectively). I used a log transformation for analysis of the dimensions of the diamond shape. I cannot take the log of zero, and twenty rows have a zero value, so I removed those observations since there are so few. I also logged the repsonse variable price for analysis since there is such a long tail. 
+  
+  
+```{r}
+
+diamonds_df <-filter(diamonds_df, x > 0, y > 0, z > 0)
+
+
+diamonds_df$log_z <- log10(diamonds_df$z)
+diamonds_df$log_y <- log10(diamonds_df$y)
+diamonds_df$log_x <- log10(diamonds_df$x)
+diamonds_df$log_price <- log10(diamonds_df$price)
+
+```
+
+  
+The transformations resolved my concerns about potential outliers. The new facet wrapped distributions are superior. 
+  
+  
+```{r}
+distribution_check <- diamonds_df  %>% select(carat, depth, table, log_price, log_x, log_y, log_z) %>% gather()
+
+ggplot(data = distribution_check, mapping=aes(value)) +
+  geom_histogram(color='blue', bins = 50) +
+  facet_wrap(~key, scales = 'free_x') 
+
+```
+  
+I next created a correlation plot.
+  
+  
+```{r}
+library(corrplot)
+
+diamonds_df %>% dplyr::select(carat, depth, table, price, x, y, z) %>%
+  cor(.) %>%
+  corrplot(.,method="ellipse")
+
+```
+
+    
+There is likely multicollinearity present in this data. There is high degree of correlation particularly among the length, width, and height of the diamonds. That certainly makes intuitive sense since diamonds are generally of the same shape. A larger height implies a larger width and length. One diamond will not be cylindrical.  
+
+```{r}
+
+set.seed(112)
+
+s1 <- sample(nrow(diamonds_df), 1000, replace = FALSE) 
+
+df_multicolin <- diamonds_df[s1,]
+
+ggplot() +
+  geom_point(data = df_multicolin, aes(x = x, y = y, size= z, alpha = 1/10)) 
+             
+            
+```
+  
+I created a scatter plot from a random sample of the data which shows how strong this correlation is between the shape values. The dot size is representative of the z value which gradually increases along the x and y correlation pattern.  
+  
+## Split Data into Training and Test Sets  
+  
+  
+I split the data into a training set and a test set by taking a random sample of the indexes of every row in the dataframe. I used a 70/30 split. 
+
+```{r}
+
+set.seed(112)
+
+s2 <- sample(nrow(diamonds_df),round(0.7*nrow(diamonds_df)))
+
+df.train <- diamonds_df[s2,]
+
+df.test <- diamonds_df[-s2,]
+
+```
+
+
+## Linear Regression
+```{r}
+
+lm.out <- lm(log_price ~ carat + cut + color + clarity + depth + table + log_x + log_y + log_z,  data = df.train)
+
+summary(lm.out)
+
+price.pred <- predict(lm.out,newdata=df.test)
+
+```
+  
+The linear model illustrates a strong linear relationship between the variables. The adjusted R-squared is very high, 0.98. The F-statistic has a very small p-value indicating I should reject the null hypothesis that the model provides no better fit than a model with no independent variables.   
+
+```{r}
+lm.mse <- mean((predict(lm.out,newdata=df.test)-df.test$log_price)^2)
+lm.mse
+```
+  
+The mean squared error between the actual logged price and the logged price predicted by the model is 0.00351.  
+
+This is also illustrated graphically.  
+
+```{r}
+
+plot(df.test$log_price ~ price.pred, main = 'Predicted Price vs. Acutal Price',
+  xlab = 'Predicted Price', ylab = 'Actual Price')
+abline(a = 0, b = 1, col = "red")
+```
+
+I also created a histogram of the difference between the observed test-set price and the predicted test-set price. The distribution is approximately normal.  
+
+```{r}
+
+hist(df.test$log_price - price.pred, breaks = 50, main = 'Residuals: Predicted Price vs. Acutal Price',
+  xlab = 'Residuals') 
+
+```
+  
+
+## Best Subset Selection Analysis
+
+```{r}
+suppressMessages(library(bestglm))
+
+df.train <- select(df.train, -x, -y, -z)
+
+y <- df.train$log_price
+df.train <- df.train[,-1]
+df.train <- data.frame(df.train,"y"=y)
+
+df.train <- select(df.train, -price, -log_price)
+
+```
+  
+In order to make use of the bestglm pakage, I changed the log_price variable to be called y and placed it at the end of the dataframe. I then removed the pre-transformed variables to avoid perfect fit. 
+  
+```{r}
+head(df.train)
+```
+  
+```{r}
+bg.out1 <- bestglm(df.train,family=gaussian,IC="AIC")
+```
+```{r}
+bg.out1$BestModel
+```
+```{r}
+bg.out2 <- bestglm(df.train,family=gaussian,IC="BIC")
+```
+
+```{r}
+bg.out2$BestModel
+```
+   
+The results of running an AIC and BIC method for variable selection produced the same results.  
+
+```{r}
+
+y <- df.test$log_price
+df.test <- df.test[,-1]
+df.test <- data.frame(df.test,"y"=y)
+
+df.test <- select(df.test, -log_price)
+
+AIC.pred <- predict(bg.out1$BestModel,newdata=df.test)
+bestglm_mse <- mean((df.test$y-AIC.pred)^2)
+
+bestglm_mse
+
+```
+```{r}
+bestglm_mse - lm.mse
+```
+Comparing the mean standard errors, the model created using an AIC method had an MSE that was 6.037361 greater than the linear model with the full set of predictors. 
+  
+  
+
+## PCA Analysis for Dimensionality 
+```{r}
+
+diamonds_df$cut = as.numeric(as.factor(diamonds_df$cut))
+diamonds_df$color = as.numeric(as.factor(diamonds_df$color))
+diamonds_df$clarity = as.numeric(as.factor(diamonds_df$clarity))
+diamonds_df$cut = as.numeric(as.factor(diamonds_df$cut))
+
+pca.out <- prcomp(diamonds_df, scale = TRUE)
+
+p.var <- pca.out$sdev^2
+  
+p.var.explained = p.var/sum(p.var)
+
+plot(cumsum(p.var.explained) , xlab = "Principal Component" , ylab = "Cumulative Proportio n of Variance Explained ", ylim = c (0 ,1) , type = 'b')
+
+```
+  
+
+Finally, I conducted a Principal Component Analysis of this data. I transformed the categorical variables into numbered categories in order to make use of the full dataset. Around the 6th component, there is no additional benefit to having more components to explain the proportion of variance.  
+
+
+  
+  
+   
