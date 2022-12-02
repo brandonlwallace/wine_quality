@@ -1,5 +1,5 @@
 ---
-title: "Project 2 - Wallace"
+title: "Project 3 - Wallace"
 author: "Brandon Wallace"
 date: "`r Sys.Date()`"
 output: html_document
@@ -9,240 +9,369 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Overview
+# Introduction 
 
-This project utilizes course modules to model the price of diamonds as function of descriptive variables. 
+This project predicts wine quality based a variety of wine properties. This markdown file contains the analysis process from start to finish. 
 
-## Data Description
+### Findings 
+
+This report found that a random forest model performed best. The random forest model was able to predict whether or not a wine was of good quality or of bad quality with only a 0.165 misclassification rate on unseen test data. The most important predictors of quality were volatile acidity and percentage of the volume of alcohol. 
+
+### Dataset 
+
+This dataset contains 6,497 observations. Each observation is a wine. There are 11 predictor variables. The response variable is a class - either "Good" or "Bad" wine. 
 
 ```{r}
-setwd("~/Carnegie Mellon - Statistical Learning/Projects")
-diamonds_df <- read.csv("~/Carnegie Mellon - Statistical Learning/Projects/diamonds.csv", stringsAsFactors=TRUE)
+wineQuality <- read.csv("~/Carnegie Mellon - Statistical Learning/Projects/wineQuality.csv",  stringsAsFactors=TRUE)
 
-summary(diamonds_df)
-dim(diamonds_df)
+summary(wineQuality)
 
+dim(wineQuality)
 ```
-The Diamonds data set has 11 variables and 53,940 observations. The response variable is price. 
 
+### Exploratory Data Analysis
 
-```{r}
-library(tidyverse)
-diamonds_df <- select(diamonds_df, -X)
-
-```
-The X variable is just a numbered column for the row. It is similar to an ID field. So, it holds no value. Therefore, I removed it from the dataframe.  
-
-
-## Exploratory Data Analysis
+I removed two outlier data points. One in sugar which was more than twice the size than the next largest value and one in free.sd which was also nearly twice the size of the next largest value. There is little evidence of multicollinearity. There is some strong relation between free.sd and total.sd since these are both measures of sulfur dioxide. 
 
 ```{r}
-
-distribution_check <- diamonds_df  %>% select(carat, depth, table, price, x, y, z) %>% gather()
+suppressWarnings(suppressPackageStartupMessages(library(tidyverse)))
+distribution_check <- wineQuality  %>% select(-label) %>% gather()
 
 ggplot(data = distribution_check, mapping=aes(value)) +
   geom_histogram(color='blue', bins = 50) +
   facet_wrap(~key, scales = 'free_x') 
+ 
+```
+
+
+```{r}
+
+head(sort(wineQuality$sugar,decreasing=TRUE),n=10)
+head(sort(wineQuality$free.sd,decreasing=TRUE),n=10)
+head(sort(wineQuality$total.sd,decreasing=TRUE),n=10)
 
 ```
 
-  
-I isolated the continuous variables for further study. There is skew, particularly for y and z (the width and depth of the diamond respectively). I used a log transformation for analysis of the dimensions of the diamond shape. I cannot take the log of zero, and twenty rows have a zero value, so I removed those observations since there are so few. I also logged the repsonse variable price for analysis since there is such a long tail. 
-  
-  
+
+```{r}
+df <- subset(wineQuality, wineQuality$sugar != 65.80) 
+```
+
+```{r}
+df <- subset(df, df$free.sd != 289.0)
+```
+
+
 ```{r}
 
-diamonds_df <-filter(diamonds_df, x > 0, y > 0, z > 0)
+ggplot(df, aes(x = sugar, fill = "red")) +
+         geom_histogram(bins =50, show.legend = FALSE) 
 
+ggplot(df, aes(x = free.sd, fill = "red")) +
+         geom_histogram(bins =50, show.legend = FALSE) 
 
-diamonds_df$log_z <- log10(diamonds_df$z)
-diamonds_df$log_y <- log10(diamonds_df$y)
-diamonds_df$log_x <- log10(diamonds_df$x)
-diamonds_df$log_price <- log10(diamonds_df$price)
 
 ```
 
-  
-The transformations resolved my concerns about potential outliers. The new facet wrapped distributions are superior. 
-  
-  
+
 ```{r}
-distribution_check <- diamonds_df  %>% select(carat, depth, table, log_price, log_x, log_y, log_z) %>% gather()
+suppressWarnings(suppressPackageStartupMessages(library(corrplot)))
 
-ggplot(data = distribution_check, mapping=aes(value)) +
-  geom_histogram(color='blue', bins = 50) +
-  facet_wrap(~key, scales = 'free_x') 
-
-```
-  
-I next created a correlation plot.
-  
-  
-```{r}
-library(corrplot)
-
-diamonds_df %>% dplyr::select(carat, depth, table, price, x, y, z) %>%
+df %>% select(-label) %>%
   cor(.) %>%
   corrplot(.,method="ellipse")
 
 ```
 
-    
-There is likely multicollinearity present in this data. There is high degree of correlation particularly among the length, width, and height of the diamonds. That certainly makes intuitive sense since diamonds are generally of the same shape. A larger height implies a larger width and length. One diamond will not be cylindrical.  
+### Data Splitting
+
+I split the data into predictor variables and a response variable. I then split the training data and a test data by taking a random sample of the indexes of every row in the dataframe. I used a 70/30 split. I then used the indexes to save my four new variables.  
 
 ```{r}
 
 set.seed(112)
 
-s1 <- sample(nrow(diamonds_df), 1000, replace = FALSE) 
+resp <- df[,12]
+pred <- df[,-12]
 
-df_multicolin <- diamonds_df[s1,]
+s <- sample(nrow(df),round(0.7*nrow(df)))
 
-ggplot() +
-  geom_point(data = df_multicolin, aes(x = x, y = y, size= z, alpha = 1/10)) 
-             
-            
+pred.train <- pred[s,]
+pred.test <- pred[-s,]
+
+resp.train <- resp[s]
+resp.test <- resp[-s]
+
 ```
-  
-I created a scatter plot from a random sample of the data which shows how strong this correlation is between the shape values. The dot size is representative of the z value which gradually increases along the x and y correlation pattern.  
-  
-## Split Data into Training and Test Sets  
-  
-  
-I split the data into a training set and a test set by taking a random sample of the indexes of every row in the dataframe. I used a 70/30 split. 
+
+
+# Models 
+
+### Best GLM Logistic Regression
+
+The Logistic Regression model averaged a misclassification rate of 0.263. In order to make a prediction on the test data, I used a class separation threshold of 0.63 because there is a class imbalance in the response variable. 63% of the label column data are good wines, which represent Class 1 probabilities. This imbalance would systemically be pulled upwards toward 1, so the threshold is adjusted. The area under the curve for the ROC is 0.742. 
+
+
+```{r} 
+suppressWarnings(suppressPackageStartupMessages(library(bestglm)))
+
+log.out = glm(resp.train~., data = pred.train, family = binomial)
+summary(log.out)
+
+```
 
 ```{r}
+nrow(filter(df, label == "GOOD"))
+nrow(filter(df, label == "BAD"))
+
+nrow(filter(df, label == "GOOD")) / (nrow(filter(df, label == "GOOD")) + nrow(filter(df, label == "BAD")))
+```
+
+
+```{r}
+log.prob = predict(log.out, newdata = pred.test, type = "response")
+log.pred = ifelse(log.prob > 0.63, "GOOD", "BAD")
+
+t<- table(log.pred,resp.test)
+t
+cat("The misclassification rate for the logistic model is ",round((t[1,2]+t[2,1])/sum(t),3),"\n")
+cat("A sample of class 1 probilities are: ", predict(log.out, newdata = pred.test, type = "response")[1:5])
+
+```
+
+```{r}
+suppressWarnings(suppressPackageStartupMessages(library(pROC)))
+
+resp.test.numeric <- ifelse(resp.test == "GOOD", 1, 0)
+log.pred.numeric <- ifelse(log.pred == "GOOD", 1, 0)
+
+roc.out <- roc(resp.test.numeric ~ log.pred.numeric ,plot = TRUE, print.auc = TRUE)
+
+cat("AUC for logistic model: ",round(roc.out$auc,3),"\n")
+
+```
+
+
+### Classification Tree 
+
+The classification tree model performed slightly worse. The model produced a misclassifcation rate of 0.256. The area under the curve for the ROC was 0.706. The model is also using few splits with specific attention paid to volatile acidity and percentage of the volume of alcohol. Pruning did not improve performance on the test data. 
+
+```{r}
+suppressWarnings(suppressPackageStartupMessages(library(rpart)))
+
+rp.out2 <- rpart(resp.train~.,data=pred.train)
+
+success_pred <- predict(rp.out2, newdata = pred.test, type='class')
+
+t2 <- table(success_pred, resp.test)
+t2
+cat("The misclassification rate for the classification tree model is ",round((t2[1,2]+t2[2,1])/sum(t2),3),"\n")
+cat("A sample of class 1 probilities are: ", predict(rp.out2, newdata = pred.test, type='class')[1:5])
+
+```
+
+```{r}
+plotcp(rp.out2)
+```
+
+```{r}
+rpart.pruned <- prune(rp.out2,cp=0.038)
+succcess_pred2 <- predict(rpart.pruned, newdata=pred.test, type="class")
+t3 <- table(succcess_pred2, resp.test)
+t3
+cat("The misclassification rate for the pruned tree model is ",round((t3[1,2]+t3[2,1])/sum(t3),3),"\n")
+cat("A sample of class 1 probilities are: ", predict(rpart.pruned, newdata = pred.test, type='class')[1:5])
+
+```
+
+
+```{r}
+suppressWarnings(suppressPackageStartupMessages(library(rpart.plot)))
+resp.test.numeric <- ifelse(resp.test == "GOOD", 1, 0)
+success_pred_numeric <- ifelse(success_pred == "GOOD", 1, 0)
+
+roc.out2 <- roc(resp.test.numeric ~ success_pred_numeric ,plot = TRUE, print.auc = TRUE)
+cat("AUC for classification tree model: ",round(roc.out2$auc,3),"\n")
+
+rpart.plot(rp.out2)
+```
+
+### Random Forest
+
+The Random Forest model proved most effective. It produced a misclassification rate of 0.165- the lowest of the approaches in this report. The area under the curve on the ROC plot was 0.822. 
+
+
+```{r}
+set.seed(112)
+suppressWarnings(suppressPackageStartupMessages(library(randomForest)))
+
+rf.out <- randomForest(resp.train~., data = pred.train, importance = TRUE)
+
+resp.pred <- predict(rf.out, newdata = pred.test, type = "prob")[,2]
+resp.pred <- ifelse(resp.pred>0.5,"GOOD","BAD")
+
+t4 <- table(resp.pred, resp.test)
+t4
+cat("The misclassification rate for the random forrest model is ",round((t4[1,2]+t4[2,1])/sum(t4),3),"\n")
+cat("A sample of class 1 probilities are: ", predict(rf.out, newdata = pred.test, type = "prob")[1:5])
+
+varImpPlot(rf.out,type=1)
+
+
+```
+
+```{r}
+resp.pred.numeric <- ifelse(resp.pred == "GOOD", 1, 0)
+resp.test.numeric <- ifelse(resp.test == "GOOD", 1, 0)
+
+roc.out3 <- roc(resp.pred.numeric ~ resp.test.numeric ,plot = TRUE, print.auc = TRUE)
+cat("AUC for random forest model is: ",round(roc.out3$auc,3),"\n")
+
+```
+
+
+### K Nearest Neighbor 
+
+The KNN model found an optimal number of nearest neighbors to be 1- i.e. the best predictor of any given point's class was the point closest to it in space. The area under the curve in the ROC plot was 0.724. 
+
+```{r}
+suppressWarnings(suppressPackageStartupMessages(library(FNN)))
+
+k.max = 50
+misclas.k = rep(NA,k.max)
+for ( kk in 1:k.max ) {
+  knn.out = knn.cv(train = pred.train, cl = resp.train, k = kk, algorithm = "brute")
+  misclas.k[kk] = mean(knn.out != resp.train)
+}
+k.min = which.min(misclas.k)
+cat("The optimal number of nearest neighbors is ",k.min,"\n")
+
+```
+
+```{r}
+ggplot(data=data.frame("k"=1:k.max,"misclass"=misclas.k),mapping=aes(x=k,y=misclass)) +
+  geom_point() + geom_line() +
+  xlab("Number of Nearest Neighbors k") + ylab("Validation Miclassification") +
+  geom_vline(xintercept=k.min,color="red")
+```
+
+
+```{r}
+knn.out = knn.cv(train=pred.train, cl=resp.train, k=k.min, algorithm="brute", prob = TRUE)
+knn.pred = knn(train=pred.train,test=pred.test,cl=resp.train,k=k.min,algorithm="brute",prob=TRUE)
+knn.prob = attributes(knn.pred)$prob
+w = which(knn.pred=="BAD")
+knn.prob[w] = 1 - knn.prob[w] 
+```
+
+
+```{r}
+roc.out4 <- roc(resp.test,knn.prob, plot = TRUE, print.auc = TRUE)
+cat("AUC for the KNN model is: ",round(roc.out4$auc,3),"\n")
+
+```
+
+
+### Support Vector Machine
+
+The support vector machine model did not outperform the random forest model. The linear kernel for the SVM model outperformed the polynomial and the radial kernel with a misclassification rate of 0.248. The area under the curve for the best performing kernel was 0.712. 
+
+```{r}
+suppressWarnings(suppressPackageStartupMessages(library(e1071)))
 
 set.seed(112)
+training <- cbind(pred.train, resp.train)
 
-s2 <- sample(nrow(diamonds_df),round(0.7*nrow(diamonds_df)))
+tune.out = tune(svm,resp.train~., data=training, kernel="linear", ranges=list(cost=c(0.01, 0.1, 1 ,5 ,10)))
 
-df.train <- diamonds_df[s2,]
-
-df.test <- diamonds_df[-s2,]
-
-```
-
-
-## Linear Regression
-```{r}
-
-lm.out <- lm(log_price ~ carat + cut + color + clarity + depth + table + log_x + log_y + log_z,  data = df.train)
-
-summary(lm.out)
-
-price.pred <- predict(lm.out,newdata=df.test)
+cat("The estimated optimal value for C is ",as.numeric(tune.out$best.parameters),"\n")
 
 ```
-  
-The linear model illustrates a strong linear relationship between the variables. The adjusted R-squared is very high, 0.98. The F-statistic has a very small p-value indicating I should reject the null hypothesis that the model provides no better fit than a model with no independent variables.   
 
-```{r}
-lm.mse <- mean((predict(lm.out,newdata=df.test)-df.test$log_price)^2)
-lm.mse
-```
-  
-The mean squared error between the actual logged price and the logged price predicted by the model is 0.00351.  
-
-This is also illustrated graphically.  
 
 ```{r}
 
-plot(df.test$log_price ~ price.pred, main = 'Predicted Price vs. Acutal Price',
-  xlab = 'Predicted Price', ylab = 'Actual Price')
-abline(a = 0, b = 1, col = "red")
+best.resp.pred = predict(tune.out$best.model,newdata=pred.test)
+mean(best.resp.pred!=resp.test) ; table(best.resp.pred,resp.test)
+
 ```
 
-I also created a histogram of the difference between the observed test-set price and the predicted test-set price. The distribution is approximately normal.  
 
 ```{r}
 
-hist(df.test$log_price - price.pred, breaks = 50, main = 'Residuals: Predicted Price vs. Acutal Price',
-  xlab = 'Residuals') 
+tune.out = tune(svm,resp.train~., data=training, kernel="polynomial", ranges=list(cost=c(0.01, 0.1, 1 ,5 ,10)), degree = 2:4) 
+
+cat("The estimated optimal values for C and degree are ",as.numeric(tune.out$best.parameters),"\n")
 
 ```
-  
 
-## Best Subset Selection Analysis
 
 ```{r}
-suppressMessages(library(bestglm))
-
-df.train <- select(df.train, -x, -y, -z)
-
-y <- df.train$log_price
-df.train <- df.train[,-1]
-df.train <- data.frame(df.train,"y"=y)
-
-df.train <- select(df.train, -price, -log_price)
+resp.pred = predict(tune.out$best.model,newdata=pred.test)
+mean(resp.pred!=resp.test) ; table(resp.pred,resp.test)
 
 ```
-  
-In order to make use of the bestglm pakage, I changed the log_price variable to be called y and placed it at the end of the dataframe. I then removed the pre-transformed variables to avoid perfect fit. 
-  
-```{r}
-head(df.train)
-```
-  
-```{r}
-bg.out1 <- bestglm(df.train,family=gaussian,IC="AIC")
-```
-```{r}
-bg.out1$BestModel
-```
-```{r}
-bg.out2 <- bestglm(df.train,family=gaussian,IC="BIC")
-```
 
-```{r}
-bg.out2$BestModel
-```
-   
-The results of running an AIC and BIC method for variable selection produced the same results.  
 
 ```{r}
 
-y <- df.test$log_price
-df.test <- df.test[,-1]
-df.test <- data.frame(df.test,"y"=y)
+tune.out = tune(svm,resp.train~., data=training, kernel="radial", ranges=list(cost=c(0.01, 0.1, 1 ,5 ,10)), gamma=10^seq(c(0.01, 0.1, 1 ,5 ,10)))
 
-df.test <- select(df.test, -log_price)
-
-AIC.pred <- predict(bg.out1$BestModel,newdata=df.test)
-bestglm_mse <- mean((df.test$y-AIC.pred)^2)
-
-bestglm_mse
+cat("The estimated optimal values for C and gamma are ",as.numeric(tune.out$best.parameters),"\n") 
 
 ```
-```{r}
-bestglm_mse - lm.mse
-```
-Comparing the mean standard errors, the model created using an AIC method had an MSE that was 6.037361 greater than the linear model with the full set of predictors. 
-  
-  
 
-## PCA Analysis for Dimensionality 
+
 ```{r}
 
-diamonds_df$cut = as.numeric(as.factor(diamonds_df$cut))
-diamonds_df$color = as.numeric(as.factor(diamonds_df$color))
-diamonds_df$clarity = as.numeric(as.factor(diamonds_df$clarity))
-diamonds_df$cut = as.numeric(as.factor(diamonds_df$cut))
-
-pca.out <- prcomp(diamonds_df, scale = TRUE)
-
-p.var <- pca.out$sdev^2
-  
-p.var.explained = p.var/sum(p.var)
-
-plot(cumsum(p.var.explained) , xlab = "Principal Component" , ylab = "Cumulative Proportio n of Variance Explained ", ylim = c (0 ,1) , type = 'b')
+resp.pred = predict(tune.out$best.model,newdata=pred.test)
+mean(resp.pred!=resp.test) ; table(resp.pred,resp.test)
 
 ```
-  
 
-Finally, I conducted a Principal Component Analysis of this data. I transformed the categorical variables into numbered categories in order to make use of the full dataset. Around the 6th component, there is no additional benefit to having more components to explain the proportion of variance.  
+```{r}
+resp.pred.numeric <- ifelse(best.resp.pred == "GOOD", 1, 0)
+resp.test.numeric <- ifelse(resp.test == "GOOD", 1, 0)
+roc.out5 <- roc(resp.test.numeric,resp.pred.numeric, plot = TRUE, print.auc = TRUE)
+cat("AUC for the KNN model is: ",round(roc.out5$auc,3),"\n")
+
+```
+
+## Optimized Model
+
+The random forest model was the best performing model. In order to extract the most value from the random forest. I found the optimal class separation threshold using Youden's J Statistic. This value was 0.6114647. With this new class separation threshold, the misclassification rate was 0.165- the same as the previous model. 
+
+```{r}
+
+TP <- t4[2,2]
+FP <- t4[2,1]
+TN <- t4[1,1]
+FN <- t4[1,2]
+
+SENS <- TP / (TP + FP)
+SPEC <- TN / (TN + FP)
+
+YOUD_J <- (SENS + SPEC) - 1
+
+YOUD_J
+
+```
+
+```{r}
+rf.out <- randomForest(resp.train~., data = pred.train, importance = TRUE)
+
+resp.pred <- predict(rf.out, newdata = pred.test, type = "prob")[,2]
+resp.pred <- ifelse(resp.pred>YOUD_J,"GOOD","BAD")
+
+t5 <- table(resp.pred, resp.test)
+t5
+cat("The misclassification rate for the new random forrest model is ",round((t4[1,2]+t4[2,1])/sum(t4),3),"\n")
+cat("A sample of class 1 probilities are: ", predict(rf.out, newdata = pred.test, type = "prob")[1:5])
+
+```
 
 
-  
-  
-   
+
+
+
+
